@@ -1,0 +1,20 @@
+34: 
+
+35:     // 鏉冮檺杩囨护锛氱粡閿€鍟嗗彧鑳界湅鑷繁鐨勮鍗?    if (req.user.type === 'dealer') {
+
+36:       conditions.push(`dealer_id = $${++paramCount}`);
+
+37:       params.push(req.user.dealerId);
+
+38:     }
+
+39: 
+
+40:     if (status) {
+
+41:       conditions.push(`order_status = $${++paramCount}`);
+
+42:       params.push(status);
+
+43:     }
+

@@ -1,0 +1,113 @@
+path = r'C:\Users\Administrator\Desktop\橱柜工厂管理系统\src\backend\full_test_abnormal_v1.js'
+lines = []
+
+def L(s):
+    lines.append(s)
+
+# === HEADER ===
+L('// 橱柜工厂系统 - 异常边界测试 V1')
+L('const { Pool } = require("pg");')
+L('const pool = new Pool({ host: process.env.DB_HOST || "localhost", port: parseInt(process.env.DB_PORT || "5432"), user: process.env.DB_USER || "postgres", password: process.env.DB_PASSWORD || "postgres", database: process.env.DB_NAME || "cabinet_factory", max: 10 });')
+L('const uuid = () => require("crypto").randomUUID();')
+L('const ri = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;')
+L('const rf = (a, b) => parseFloat((Math.random() * (b - a) + a).toFixed(2));')
+L('const pick = a => a[ri(0, a.length - 1)];')
+L('const ts = () => Date.now().toString();')
+L('const db = { query: (t, p) => pool.query(t, p) };')
+
+# === CLEARALL ===
+L('async function clearAll() {')
+L('    console.log("\\n========================================");')
+L('    console.log("  橱柜工厂 - 异常边界测试 V1");')
+L('    console.log("========================================");')
+L('    console.log("\\n========== 1. 清空数据 ==========");')
+L('    const client = await pool.connect();')
+L('    try {')
+L("        await client.query('SET session_replication_role = replica;');")
+L("        await client.query('TRUNCATE TABLE payment_in, receivable, attendance_record, installation_progress, installer_allocation, installation_task, logistics_track, logistics_record, package_item, package_record, door_panel_production, countertop_production, production_schedule, production_worker, production_stage, stock_in, stock_out, stock_inventory, order_tracking, order_bom, order_detail, order_master, material_bom, material, warehouse, supplier, customer, employee, department CASCADE;');")
+L("        await client.query('SET session_replication_role = origin;');")
+L("        console.log('OK: 清空完成');")
+L('    } finally { client.release(); }')
+L('}')
+
+# === CREATEBASIC ===
+L('async function createBasic() {')
+L("    console.log('\\n========== 2. 基础数据：部门+员工 ==========');")
+L('    const client = await pool.connect(); const deptIds = {}; const empIds = [];')
+L("    try {")
+L("        await client.query('BEGIN');")
+L("        const depts = [{ n: '销售部A', c: 'DEPT-SA', t: 'sales' }, { n: '设计部A', c: 'DEPT-DE', t: 'design' }, { n: '生产部A', c: 'DEPT-PR', t: 'production' }, { n: '仓储部A', c: 'DEPT-WH', t: 'warehouse' }, { n: '物流部A', c: 'DEPT-LO', t: 'logistics' }, { n: '安装部A', c: 'DEPT-IN', t: 'installation' }, { n: '财务部A', c: 'DEPT-FI', t: 'finance' }, { n: '人事部A', c: 'DEPT-HR', t: 'admin' }];")
+L("        for (const d of depts) { const id = uuid(); deptIds[d.c] = id; await client.query('INSERT INTO department(id,dept_code,dept_name,dept_type,status,created_at) VALUES($1,$2,$3,$4,\\'active\\',NOW())', [id, d.c, d.n, d.t]); }")
+L("        const emps = [{ n: '张三', d: 'DEPT-SA' }, { n: '李四', d: 'DEPT-SA' }, { n: '王五', d: 'DEPT-DE' }, { n: '赵六', d: 'DEPT-DE' }, { n: '钱七', d: 'DEPT-PR' }, { n: '孙八', d: 'DEPT-PR' }, { n: '周九', d: 'DEPT-WH' }, { n: '吴十', d: 'DEPT-WH' }, { n: '郑一', d: 'DEPT-LO' }, { n: '王二', d: 'DEPT-IN' }, { n: '冯三', d: 'DEPT-FI' }, { n: '陈四', d: 'DEPT-HR' }];")
+L("        for (const e of emps) { const id = uuid(); empIds.push({ id, name: e.n, dept: e.d }); await client.query('INSERT INTO employee(id,employee_no,employee_name,dept_id,position,phone,status,hire_date,created_at) VALUES($1,$2,$3,$4,\\'员工\\',\\'13800000000\\',\\'active\\',DATE\\'2024-01-01\\',NOW())', [id, 'E' + ts().slice(-6) + ri(100,999), e.n, deptIds[e.d]]); }")
+L("        await client.query('COMMIT');")
+L("        console.log('OK: ' + depts.length + '部门, ' + emps.length + '员工');")
+L('        return { deptIds, empIds };')
+L('    } catch (err) { await client.query("ROLLBACK"); throw err; }')
+L('    finally { client.release(); }')
+L('}')
+
+# === CREATECUSTOMERS ===
+L('async function createCustomers() {')
+L("    console.log('\\n========== 3. 客户（正常+异常） ==========');")
+L('    const client = await pool.connect(); const custIds = [];')
+L("    try {")
+L("        await client.query('BEGIN');")
+L("        const custData = [{ n: '张先生', p: '13800138001', a: '广州市天河区珠江新城花城大道', t: 'normal' }, { n: '李女士', p: '13800138002', a: '深圳市南山区科技园', t: 'normal' }, { n: '王先生', p: '138001380000123', a: '佛山市禅城区季华六路绿地中心', t: 'abnormal_long_phone' }, { n: '赵先生', p: '', a: '广州市天河区珠江新城花城大道123号某某小区A栋1501很长', t: 'abnormal_empty_phone' }, { n: '刘女士', p: '', a: '东莞市南城区鸿福路108号', t: 'abnormal_empty_phone2' }, { n: '陈退', p: '13800138006', a: '珠海市香洲区情侣中路', t: 'abnormal_special' }];")
+L('        for (const cu of custData) {')
+L("            const id = uuid(); custIds.push({ id, name: cu.n, type: cu.t });")
+L("            try { await client.query('INSERT INTO customer(id,customer_no,customer_name,phone,province,city,district,address,status,source,created_at) VALUES($1,$2,$3,$4,\\'广东省\\',\\'广州市\\',\\'天河区\\',$5,\\'following\\',\\'测试\\',NOW())', [id, 'C' + ts().slice(-6) + ri(100,999), cu.n, cu.p || null, cu.a]); console.log('OK: ' + cu.n + ' [' + cu.t + ']'); }")
+L("            catch (e2) { console.log('FAIL: ' + cu.n + ' [' + cu.t + '] - ' + e2.message.split('\\n')[0]); }")
+L('        }')
+L("        await client.query('COMMIT'); return custIds;")
+L('    } catch (err) { await client.query("ROLLBACK"); throw err; }')
+L('    finally { client.release(); }')
+L('}')
+
+# === CREATESUPPLIERS ===
+L('async function createSuppliers() {')
+L("    console.log('\\n========== 4. 供应商 ==========');")
+L('    const client = await pool.connect(); const suppIds = [];')
+L("    try {")
+L("        await client.query('BEGIN');")
+L("        const supps = [{ n: '深圳伟业五金', c: 'SUP-SZ001', ct: '李经理', p: '13800138111' }, { n: '广州华南板材', c: 'SUP-GZ001', ct: '张经理', p: '13800138222' }, { n: '佛山高明石英石', c: 'SUP-FS001', ct: '王经理', p: '13800138333' }];")
+L("        for (const s of supps) { const id = uuid(); suppIds.push({ id, name: s.n }); await client.query('INSERT INTO supplier(id,supplier_code,supplier_name,contact_person,phone,province,city,supply_category,status,created_at) VALUES($1,$2,$3,$4,$5,\\'广东省\\',\\'深圳市\\',\\'原材料\\',\\'active\\',NOW())', [id, s.c, s.n, s.ct, s.p]); console.log('OK: ' + s.n); }")
+L("        await client.query('COMMIT'); return suppIds;")
+L('    } catch (err) { await client.query("ROLLBACK"); throw err; }')
+L('    finally { client.release(); }')
+L('}')
+
+# === CREATEWAREHOUSES ===
+L('async function createWarehouses() {')
+L("    console.log('\\n========== 5. 仓库 ==========');")
+L('    const client = await pool.connect(); const whIds = [];')
+L("    try {")
+L("        await client.query('BEGIN');")
+L("        const whs = [{ n: '广州总仓', c: 'WH001T' }, { n: '佛山分仓', c: 'WH002T' }, { n: '深圳分仓', c: 'WH003T' }];")
+L("        for (const w of whs) { const id = uuid(); whIds.push({ id, name: w.n }); await client.query('INSERT INTO warehouse(id,warehouse_code,warehouse_name,warehouse_type,province,city,district,address,status,created_at) VALUES($1,$2,$3,\\'main\\',\\'广东省\\',\\'广州市\\',\\'白云区\\',\\'广州市白云区钟落潭\\',\\'active\\',NOW())', [id, w.c, w.n]); console.log('OK: ' + w.n); }")
+L("        await client.query('COMMIT'); return whIds;")
+L('    } catch (err) { await client.query("ROLLBACK"); throw err; }')
+L('    finally { client.release(); }')
+L('}')
+
+# === CREATEMATERIALS ===
+L('async function createMaterials(suppIds) {')
+L("    console.log('\\n========== 6. 材料（正常+边界） ==========');")
+L('    const client = await pool.connect(); const matIds = [];')
+L("    try {")
+L("        await client.query('BEGIN');")
+L("        const mats = [{ n: '304不锈钢板1.5mm', cat: '不锈钢', sp: 380, code: 'MAT-SUS15' }, { n: '304不锈钢板2.0mm', cat: '不锈钢', sp: 520, code: 'MAT-SUS20' }, { n: '石英石台面板白色', cat: '台面', sp: 0, code: 'MAT-QS01' }, { n: '防火门板标准18mm', cat: '门板', sp: 220, code: 'MAT-FM01' }, { n: '抽屉导轨普通型', cat: '五金', sp: 15, code: 'MAT-DG01' }, { n: '液压铰链带缓冲', cat: '五金', sp: 8, code: 'MAT-HJ01' }, { n: 'ABS封边条白色', cat: '辅料', sp: 3, code: 'MAT-FB01' }, { n: 'LED灯带暖白色', cat: '电器', sp: 25, code: 'MAT-LED' }];")
+L('        for (const m of mats) {')
+L('            const id = uuid(); matIds.push({ id, name: m.n, code: m.code });')
+L("            try { await client.query('INSERT INTO material(id,material_code,material_name,category,specification,unit,unit_price,safe_stock,supplier_id,supplier_name,status,created_at) VALUES($1,$2,$3,$4,\\'标准\\',\\'张\\',$5,100,$6,$7,\\'active\\',NOW())', [id, m.code + ts().slice(-4), m.n, m.cat, m.sp, suppIds[0] ? suppIds[0].id : null, suppIds[0] ? suppIds[0].name : '供应商']); console.log('OK: ' + m.n + ' [price=' + m.sp + ']'); }")
+L("            catch (me) { console.log('FAIL: ' + m.n + ' - ' + me.message.split('\\n')[0]); }")
+L('        }')
+L("        await client.query('COMMIT'); return matIds;")
+L('    } catch (err) { await client.query("ROLLBACK"); throw err; }')
+L('    finally { client.release(); }')
+L('}')
+
+content = '\n'.join(lines) + '\n'
+with open(path, 'w', encoding='utf-8') as f:
+    f.write(content)
+print('Part 1 written, lines:', len(lines))

@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Environment files (contain sensitive data)
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build output
+dist/
+build/
+
+# Uploads
+uploads/
+
+# Database (local)
+*.db
+*.sqlite
+
+# Temporary files
+*.tmp
+*.temp
+fix_*.js
+check_*.js
+
+# Secrets (if any)
+secrets.json
+credentials.json
+
+# Lock files (optional, can keep package-lock.json)
+# package-lock.json
