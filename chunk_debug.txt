@@ -1,8 +1,0 @@
-3. 璁㈠崟鐘舵€佷繚鎸?shipped锛堢瓑寰呭畨瑁呭畬鎴愬悗鎵嶆敼涓?installed锛?    await client.query(
-      `UPDATE order_master SET updated_at=NOW() WHERE id=$1`,
-      [id]
-    );
-
-    // 4. 璁板綍杩借釜
-    await client.query(
-      `INSERT INTO order_tracking (order_id, current_stage, stage_name, stage_status, stage_remark, create
