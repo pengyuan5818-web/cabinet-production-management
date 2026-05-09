@@ -280,9 +280,13 @@ const editForm = reactive({
   customer_name: '',
   customer_phone: '',
   delivery_address: '',
+  city: '',
+  district: '',
+  address: '',
   expected_delivery: '',
   remark: '',
-  priority: ''
+  priority: '',
+  installation_required: false
 })
 const editRules = {
   customer_name: [{ required: true, message: '请输入客户名', trigger: 'blur' }],
@@ -391,7 +395,7 @@ const loadOrders = async () => {
     const res = await orders.list({
       page: page.value,
       page_size: pageSize.value,
-      order_no: search.value,
+      keyword: search.value,
       status: filterStatus.value
     })
     if (res.success) {
@@ -499,6 +503,10 @@ const handleEdit = (row) => {
   editForm.expected_delivery = row.expected_delivery || ''
   editForm.remark = row.remark || ''
   editForm.priority = row.priority || ''
+  editForm.city = row.city || ''
+  editForm.district = row.district || ''
+  editForm.address = row.address || ''
+  editForm.installation_required = row.installation_required || false
   currentOrder.value = { ...row }
   editVisible.value = true
 }
@@ -513,8 +521,13 @@ const handleSaveEdit = async () => {
         customer_name: editForm.customer_name,
         customer_phone: editForm.customer_phone,
         delivery_address: editForm.delivery_address,
+        city: editForm.city,
+        district: editForm.district,
+        address: editForm.address,
         expected_delivery: editForm.expected_delivery,
-        remark: editForm.remark
+        remark: editForm.remark,
+        priority: editForm.priority,
+        installation_required: editForm.installation_required
       })
       if (res.success) {
         ElMessage.success('订单更新成功')

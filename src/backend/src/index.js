@@ -10,11 +10,25 @@ const db = require('./db');
 const authMiddleware = require('./middleware/auth');
 const { initHardware, onBarcode, offBarcode } = require('./hardware');
 
+// 生产环境必须设置 JWT_SECRET，禁止硬编码兜底
+if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+  throw new Error('FATAL: JWT_SECRET environment variable is not set in production');
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// 中间件
-app.use(cors());
+// 中间件：CORS 限制来源（生产环境应配置具体域名）
+const corsOptions = process.env.NODE_ENV === 'production'
+  ? {
+      origin: process.env.CORS_ORIGIN || false,  // 未配置时禁止跨域
+      credentials: true
+    }
+  : {
+      origin: true,  // 开发环境允许所有来源
+      credentials: true
+    };
+app.use(cors(corsOptions));
 // dealer 路由专用 body parser：保留原始 body 用于 HMAC 签名验证
 app.use('/dealer/', express.json({
   limit: '50mb',
@@ -99,6 +113,12 @@ app.use('/api/design', authMiddleware, require('./routes/design'));
 app.use('/api/installation', authMiddleware, require('./routes/installation'));
 app.use('/api/quote', authMiddleware, require('./routes/quote'));
 app.use('/api/package', authMiddleware, require('./routes/package'));
+
+// 审批管理
+app.use('/api/approvals', authMiddleware, require('./routes/approval'));
+
+// 合同管理
+app.use('/api/contracts', authMiddleware, require('./routes/contract'));
 
 // 健康检查
 app.get('/api/health', (req, res) => {

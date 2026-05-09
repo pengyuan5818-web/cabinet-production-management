@@ -33,7 +33,9 @@ const routes = [
       { path: 'system', name: 'System', component: () => import('../views/system/index.vue') },
       { path: 'system/exchange-rate', name: 'ExchangeRate', component: () => import('../views/system/exchange_rate.vue') },
       { path: 'cost', name: 'Cost', component: () => import('../views/cost/index.vue') },
-      { path: 'scanner', name: 'Scanner', component: () => import('../views/scanner/index.vue') }
+      { path: 'scanner', name: 'Scanner', component: () => import('../views/scanner/index.vue') },
+      { path: 'approval', name: 'Approval', component: () => import('../views/approval/index.vue') },
+      { path: 'contract', name: 'Contract', component: () => import('../views/contract/index.vue') }
     ]
   },
   {

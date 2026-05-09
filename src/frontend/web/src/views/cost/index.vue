@@ -391,7 +391,7 @@ async function loadSummary() {
       stats.value = monthRes.data.data
       const t = stats.value.order
       if (t) {
-        stats.value.order.total_profit = (parseFloat(t.total_sales || 0) - parseFloat(t.total_cost || 0)).toFixed(2)
+        stats.value.order.total_profit = parseFloat((parseFloat(t.total_sales || 0) - parseFloat(t.total_cost || 0)).toFixed(2))
       }
     }
     if (ratioRes.data.success) ratioData.value = ratioRes.data.data

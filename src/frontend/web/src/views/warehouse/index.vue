@@ -301,7 +301,7 @@
               <template #default="{ row }">
                 <template v-if="editingWhId !== row.id">
                   <el-button type="primary" link size="small" @click="openEditWh(row)">编辑</el-button>
-                  <el-button type="warning" link size="small" @click="openEditWh(row)">保存</el-button>
+                  <el-button type="warning" link size="small" @click="saveWh(row.id)">保存</el-button>
                 </template>
                 <template v-else>
                   <el-button type="success" link size="small" @click="saveWh(row.id)">保存</el-button>
@@ -928,9 +928,22 @@ const handleAdjust = (row) => {
   showAdjustDialog.value = true
 }
 
-const submitAdjust = () => {
-  ElMessage.info('库存调整功能开发中')
-  showAdjustDialog.value = false
+const submitAdjust = async () => {
+  if (!adjustForm.value.adjust_qty) { ElMessage.warning('请输入调整数量'); return }
+  try {
+    const res = await warehouse.adjust({
+      id: adjustForm.value.id,
+      quantity: adjustForm.value.adjust_qty,
+      reason: adjustForm.value.reason
+    })
+    if (res.success) {
+      ElMessage.success('库存调整成功')
+      showAdjustDialog.value = false
+      loadInventory()
+    } else {
+      ElMessage.error(res.message || '调整失败')
+    }
+  } catch (e) { ElMessage.error('调整失败') }
 }
 
 const goToSort = () => {
@@ -956,6 +969,9 @@ watch(() => activeTab.value, (tab) => {
 })
 
 watch(locFilterWh, () => loadAllLocations())
+watch(invPageSize, () => loadInventory())
+watch(inPageSize, () => loadInRecords())
+watch(outPageSize, () => loadOutRecords())
 </script>
 
 <style scoped>

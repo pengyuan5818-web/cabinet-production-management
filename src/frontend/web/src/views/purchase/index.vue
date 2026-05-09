@@ -368,9 +368,10 @@ async function loadOptions() {
     console.error('加载选项失败', err)
   }
   try {
-    const warehouseRes = await import('../../api').then(m => m.default.warehouse?.list({ page_size: 500 }))
-    if (warehouseRes?.data) {
-      materialOptions.value = warehouseRes.data
+    const warehouseApi = await import('../../api').then(m => m.default.warehouse)
+    if (warehouseApi) {
+      const res = await warehouseApi.list({ page_size: 500 })
+      if (res.data) materialOptions.value = res.data
     }
   } catch (err) {
     // ignore

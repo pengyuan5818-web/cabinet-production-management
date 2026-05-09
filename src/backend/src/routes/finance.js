@@ -17,28 +17,16 @@ router.get('/receivables', async (req, res, next) => {
     const offset = (page - 1) * page_size;
 
     let whereClause = ['1=1'];
-    const params = [];
-    let paramCount = 0;
+    const whereParams = [];
+    let p = 0;
 
-    if (status) {
-      whereClause.push(`r.status = $${++paramCount}`);
-      params.push(status);
-    }
-    if (dealer_id) {
-      whereClause.push(`r.dealer_id = $${++paramCount}`);
-      params.push(dealer_id);
-    }
-    if (start_date) {
-      whereClause.push(`r.bill_date >= $${++paramCount}`);
-      params.push(start_date);
-    }
-    if (end_date) {
-      whereClause.push(`r.bill_date <= $${++paramCount}`);
-      params.push(end_date);
-    }
+    if (status) { whereClause.push(`r.status = $${++p}`); whereParams.push(status); }
+    if (dealer_id) { whereClause.push(`r.dealer_id = $${++p}`); whereParams.push(dealer_id); }
+    if (start_date) { whereClause.push(`r.bill_date >= $${++p}`); whereParams.push(start_date); }
+    if (end_date) { whereClause.push(`r.bill_date <= $${++p}`); whereParams.push(end_date); }
 
     const where = 'WHERE ' + whereClause.join(' AND ');
-    params.push(page_size, offset);
+    const params = [...whereParams, page_size, offset];
 
     const result = await db.query(
       `SELECT r.*, d.dealer_name, om.order_no
@@ -47,23 +35,23 @@ router.get('/receivables', async (req, res, next) => {
        LEFT JOIN order_master om ON r.order_id = om.id
        ${where}
        ORDER BY r.bill_date DESC
-       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`,
+       LIMIT $${p + 1} OFFSET $${p + 2}`,
       params
     );
 
     const countResult = await db.query(
       `SELECT COUNT(*) FROM receivable r ${where}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     // 汇总
     const summaryResult = await db.query(
-      `SELECT 
+      `SELECT
         SUM(amount) as total_amount,
         SUM(paid_amount) as total_paid,
         SUM(amount - paid_amount) as total_unpaid
        FROM receivable r ${where}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     res.json({
@@ -226,28 +214,16 @@ router.get('/payables', async (req, res, next) => {
     const offset = (page - 1) * page_size;
 
     let whereClause = ['1=1'];
-    const params = [];
-    let paramCount = 0;
+    const whereParams = [];
+    let p = 0;
 
-    if (status) {
-      whereClause.push(`p.status = $${++paramCount}`);
-      params.push(status);
-    }
-    if (supplier_id) {
-      whereClause.push(`p.supplier_id = $${++paramCount}`);
-      params.push(supplier_id);
-    }
-    if (start_date) {
-      whereClause.push(`p.bill_date >= $${++paramCount}`);
-      params.push(start_date);
-    }
-    if (end_date) {
-      whereClause.push(`p.bill_date <= $${++paramCount}`);
-      params.push(end_date);
-    }
+    if (status) { whereClause.push(`p.status = $${++p}`); whereParams.push(status); }
+    if (supplier_id) { whereClause.push(`p.supplier_id = $${++p}`); whereParams.push(supplier_id); }
+    if (start_date) { whereClause.push(`p.bill_date >= $${++p}`); whereParams.push(start_date); }
+    if (end_date) { whereClause.push(`p.bill_date <= $${++p}`); whereParams.push(end_date); }
 
     const where = 'WHERE ' + whereClause.join(' AND ');
-    params.push(page_size, offset);
+    const params = [...whereParams, page_size, offset];
 
     const result = await db.query(
       `SELECT p.*, s.supplier_name, s.contact_person, s.phone as supplier_phone
@@ -255,13 +231,13 @@ router.get('/payables', async (req, res, next) => {
        LEFT JOIN supplier s ON p.supplier_id = s.id
        ${where}
        ORDER BY p.bill_date DESC
-       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`,
+       LIMIT $${p + 1} OFFSET $${p + 2}`,
       params
     );
 
     const countResult = await db.query(
       `SELECT COUNT(*) FROM payable p ${where}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     res.json({
@@ -403,20 +379,14 @@ router.get('/invoices', async (req, res, next) => {
     const offset = (page - 1) * page_size;
 
     let whereClause = ['1=1'];
-    const params = [];
-    let paramCount = 0;
+    const whereParams = [];
+    let p = 0;
 
-    if (type) {
-      whereClause.push(`invoice_type = $${++paramCount}`);
-      params.push(type);
-    }
-    if (status) {
-      whereClause.push(`status = $${++paramCount}`);
-      params.push(status);
-    }
+    if (type) { whereClause.push(`invoice_type = $${++p}`); whereParams.push(type); }
+    if (status) { whereClause.push(`status = $${++p}`); whereParams.push(status); }
 
     const where = 'WHERE ' + whereClause.join(' AND ');
-    params.push(page_size, offset);
+    const params = [...whereParams, page_size, offset];
 
     const result = await db.query(
       `SELECT i.*, d.dealer_name, s.supplier_name
@@ -425,13 +395,13 @@ router.get('/invoices', async (req, res, next) => {
        LEFT JOIN supplier s ON i.supplier_id = s.id
        ${where}
        ORDER BY i.invoice_date DESC
-       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`,
+       LIMIT $${p + 1} OFFSET $${p + 2}`,
       params
     );
 
     const countResult = await db.query(
       `SELECT COUNT(*) FROM invoice i ${where}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     res.json({
@@ -499,28 +469,16 @@ router.get('/fund-flow', async (req, res, next) => {
     const offset = (page - 1) * page_size;
 
     let whereClause = ['1=1'];
-    const params = [];
-    let paramCount = 0;
+    const whereParams = [];
+    let p = 0;
 
-    if (flow_type) {
-      whereClause.push(`flow_type = $${++paramCount}`);
-      params.push(flow_type);
-    }
-    if (biz_type) {
-      whereClause.push(`biz_type = $${++paramCount}`);
-      params.push(biz_type);
-    }
-    if (start_date) {
-      whereClause.push(`created_at >= $${++paramCount}`);
-      params.push(start_date);
-    }
-    if (end_date) {
-      whereClause.push(`created_at <= $${++paramCount}`);
-      params.push(end_date);
-    }
+    if (flow_type) { whereClause.push(`flow_type = $${++p}`); whereParams.push(flow_type); }
+    if (biz_type) { whereClause.push(`biz_type = $${++p}`); whereParams.push(biz_type); }
+    if (start_date) { whereClause.push(`created_at >= $${++p}`); whereParams.push(start_date); }
+    if (end_date) { whereClause.push(`created_at <= $${++p}`); whereParams.push(end_date); }
 
     const where = 'WHERE ' + whereClause.join(' AND ');
-    params.push(page_size, offset);
+    const params = [...whereParams, page_size, offset];
 
     const result = await db.query(
       `SELECT ff.*, u.real_name as operator_name
@@ -528,22 +486,22 @@ router.get('/fund-flow', async (req, res, next) => {
        LEFT JOIN sys_user u ON ff.operator_id = u.id
        ${where}
        ORDER BY ff.created_at DESC
-       LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}`,
+       LIMIT $${p + 1} OFFSET $${p + 2}`,
       params
     );
 
     const countResult = await db.query(
       `SELECT COUNT(*) FROM fund_flow ff ${where}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     // 汇总
     const summaryResult = await db.query(
-      `SELECT 
+      `SELECT
         SUM(CASE WHEN flow_type = 'income' THEN amount ELSE 0 END) as total_income,
         SUM(CASE WHEN flow_type = 'expense' THEN amount ELSE 0 END) as total_expense
        FROM fund_flow ff ${where}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     res.json({
@@ -694,16 +652,16 @@ router.get('/customer-arrears', async (req, res, next) => {
     const offset = (page - 1) * page_size;
 
     let where = ['1=1'];
-    let params = [];
+    const whereParams = [];
     let p = 0;
 
-    if (status) { where.push(`ar.payment_status = $${++p}`); params.push(status); }
-    if (start_date) { where.push(`ar.due_date >= $${++p}`); params.push(start_date); }
-    if (end_date) { where.push(`ar.due_date <= $${++p}`); params.push(end_date); }
-    if (keyword) { where.push(`(ar.order_no ILIKE $${++p} OR ar.customer_name ILIKE $${++p})`); params.push('%' + keyword + '%'); }
+    if (status) { where.push(`ar.payment_status = $${++p}`); whereParams.push(status); }
+    if (start_date) { where.push(`ar.due_date >= $${++p}`); whereParams.push(start_date); }
+    if (end_date) { where.push(`ar.due_date <= $${++p}`); whereParams.push(end_date); }
+    if (keyword) { where.push(`(ar.order_no ILIKE $${++p} OR ar.customer_name ILIKE $${++p})`); whereParams.push('%' + keyword + '%'); }
 
     const whereStr = 'WHERE ' + where.join(' AND ');
-    params.push(page_size, offset);
+    const params = [...whereParams, page_size, offset];
 
     const result = await db.query(
       `SELECT ar.*, o.order_no, o.total_amount as order_amount,
@@ -719,7 +677,7 @@ router.get('/customer-arrears', async (req, res, next) => {
 
     const countResult = await db.query(
       `SELECT COUNT(*) FROM accounts_receivable ar ${whereStr}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     const summaryResult = await db.query(
@@ -731,7 +689,7 @@ router.get('/customer-arrears', async (req, res, next) => {
        LEFT JOIN order_master o ON ar.order_id = o.id
        LEFT JOIN customer c ON o.customer_id = c.id
        ${whereStr}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     res.json({
@@ -759,16 +717,16 @@ router.get('/dealer-arrears', async (req, res, next) => {
     const offset = (page - 1) * page_size;
 
     let where = ['1=1'];
-    let params = [];
+    const whereParams = [];
     let p = 0;
 
-    if (status) { where.push(`dr.status = $${++p}`); params.push(status); }
-    if (dealer_id) { where.push(`dr.dealer_id = $${++p}`); params.push(dealer_id); }
-    if (start_date) { where.push(`dr.due_date >= $${++p}`); params.push(start_date); }
-    if (end_date) { where.push(`dr.due_date <= $${++p}`); params.push(end_date); }
+    if (status) { where.push(`dr.status = $${++p}`); whereParams.push(status); }
+    if (dealer_id) { where.push(`dr.dealer_id = $${++p}`); whereParams.push(dealer_id); }
+    if (start_date) { where.push(`dr.due_date >= $${++p}`); whereParams.push(start_date); }
+    if (end_date) { where.push(`dr.due_date <= $${++p}`); whereParams.push(end_date); }
 
     const whereStr = 'WHERE ' + where.join(' AND ');
-    params.push(page_size, offset);
+    const params = [...whereParams, page_size, offset];
 
     const result = await db.query(
       `SELECT dr.*, d.dealer_name, d.contact_person, d.phone
@@ -782,7 +740,7 @@ router.get('/dealer-arrears', async (req, res, next) => {
 
     const countResult = await db.query(
       `SELECT COUNT(*) FROM dealer_receivable dr ${whereStr}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     const summaryResult = await db.query(
@@ -791,7 +749,7 @@ router.get('/dealer-arrears', async (req, res, next) => {
         COALESCE(SUM(paid_amount),0) as paid_amount,
         COALESCE(SUM(pending_amount),0) as pending_amount
        FROM dealer_receivable dr ${whereStr}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     res.json({
@@ -819,16 +777,16 @@ router.get('/supplier-arrears', async (req, res, next) => {
     const offset = (page - 1) * page_size;
 
     let where = ['1=1'];
-    let params = [];
+    const whereParams = [];
     let p = 0;
 
-    if (status) { where.push(`p.status = $${++p}`); params.push(status); }
-    if (supplier_id) { where.push(`p.supplier_id = $${++p}`); params.push(supplier_id); }
-    if (start_date) { where.push(`p.bill_date >= $${++p}`); params.push(start_date); }
-    if (end_date) { where.push(`p.bill_date <= $${++p}`); params.push(end_date); }
+    if (status) { where.push(`p.status = $${++p}`); whereParams.push(status); }
+    if (supplier_id) { where.push(`p.supplier_id = $${++p}`); whereParams.push(supplier_id); }
+    if (start_date) { where.push(`p.bill_date >= $${++p}`); whereParams.push(start_date); }
+    if (end_date) { where.push(`p.bill_date <= $${++p}`); whereParams.push(end_date); }
 
     const whereStr = 'WHERE ' + where.join(' AND ');
-    params.push(page_size, offset);
+    const params = [...whereParams, page_size, offset];
 
     const result = await db.query(
       `SELECT p.*, s.supplier_name, s.contact_person, s.phone
@@ -842,7 +800,7 @@ router.get('/supplier-arrears', async (req, res, next) => {
 
     const countResult = await db.query(
       `SELECT COUNT(*) FROM payable p ${whereStr}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     const summaryResult = await db.query(
@@ -851,7 +809,7 @@ router.get('/supplier-arrears', async (req, res, next) => {
         COALESCE(SUM(paid_amount),0) as paid_amount,
         COALESCE(SUM(total_amount - paid_amount),0) as balance_amount
        FROM payable p ${whereStr}`,
-      params.slice(0, -2)
+      whereParams
     );
 
     res.json({

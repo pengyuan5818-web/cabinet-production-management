@@ -375,4 +375,31 @@ export const exchangeRate = {
   convert: (data) => api.post('/exchange-rates/convert', data)
 }
 
+// 审批管理
+export const approval = {
+  list: (params) => api.get('/approvals', { params }),
+  detail: (id) => api.get(`/approvals/${id}`),
+  create: (data) => api.post('/approvals', data),
+  approve: (id, data) => api.put(`/approvals/${id}/approve`, data),
+  reject: (id, data) => api.put(`/approvals/${id}/reject`, data),
+  delete: (id) => api.delete(`/approvals/${id}`),
+  todo: (params) => api.get('/approvals/todo', { params }),
+  my: (params) => api.get('/approvals/my', { params })
+}
+
+// 合同管理
+export const contract = {
+  list: (params) => api.get('/contracts', { params }),
+  detail: (id) => api.get(`/contracts/${id}`),
+  create: (data) => api.post('/contracts', data),
+  update: (id, data) => api.put(`/contracts/${id}`, data),
+  delete: (id) => api.delete(`/contracts/${id}`),
+  sign: (id, data) => api.put(`/contracts/${id}/sign`, data),
+  updateStatus: (id, data) => api.put(`/contracts/${id}/status`, data),
+  terms: (id) => api.get(`/contracts/${id}/terms`),
+  addTerm: (id, data) => api.post(`/contracts/${id}/terms`, data),
+  updateTerm: (id, termId, data) => api.put(`/contracts/${id}/terms/${termId}`, data),
+  deleteTerm: (id, termId) => api.delete(`/contracts/${id}/terms/${termId}`)
+}
+
 export default api

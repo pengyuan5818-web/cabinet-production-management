@@ -197,120 +197,128 @@ router.post('/scan', async (req, res, next) => {
     let targetStage = stage;
 
     if (!targetStage) {
-      // 自动推进：找当前 in_progress 阶段，完成后自动进入 next_stage
-      const inProg = await db.query(
-        `SELECT current_stage FROM order_tracking
-         WHERE order_id = $1::uuid AND stage_status = 'in_progress'
-         ORDER BY created_at DESC LIMIT 1`,
-        [orderId]
-      );
-
-      if (inProg.rows.length > 0) {
-        // 有进行中阶段 -> 扫码完成该阶段，推进到下一阶段
-        const currentStageValue = inProg.rows[0].current_stage;
-        const stageDef = await db.query(
-          `SELECT stage_name, next_stage FROM production_stage WHERE stage = $1`,
-          [currentStageValue]
-        );
-
-        if (stageDef.rows.length > 0) {
-          const { next_stage, stage_name } = stageDef.rows[0];
-
-          // 将当前阶段标记为 completed
-          await db.query(
-            `UPDATE order_tracking
-             SET stage_status = 'completed', completed_at = NOW(),
-                 operator_id = COALESCE($1::uuid, operator_id),
-                 operator_name = COALESCE($2, operator_name),
-                 operator_device = COALESCE($3, operator_device),
-                 stage_remark = COALESCE($4, stage_remark),
-                 updated_at = NOW()
-             WHERE order_id = $5::uuid AND stage_status = 'in_progress'`,
-            [operator_id, operator_name, operator_device, remark, orderId]
-          );
-
-          // 创建下一阶段 in_progress
-          if (next_stage) {
-            const nextStageName = await db.query(
-              `SELECT stage_name FROM production_stage WHERE stage = $1`,
-              [next_stage]
-            );
-            const name = nextStageName.rows[0]?.stage_name || next_stage;
-            // 先删除可能存在的该阶段旧记录（防止重复）
-            await db.query(
-              `DELETE FROM order_tracking WHERE order_id = $1::uuid AND current_stage = $2`,
-              [orderId, next_stage]
-            );
-            await db.query(
-              `INSERT INTO order_tracking (id, order_id, current_stage, stage_name, stage_status, started_at, created_at)
-               VALUES ($1, $2::uuid, $3, $4, 'in_progress', NOW(), NOW())`,
-              [uuidv4(), orderId, next_stage, name]
-            );
-            targetStage = next_stage;
-          } else {
-            // 所有阶段完成 → 订单完工，自动分配库位
-            const locResult = await db.query(
-              `UPDATE warehouse_location
-               SET status = 'occupied'
-               WHERE id = (
-                 SELECT id FROM warehouse_location
-                 WHERE warehouse_id = (SELECT id FROM warehouse WHERE warehouse_type = 'finished')
-                 AND status = 'empty'
-                 ORDER BY location_code
-                 LIMIT 1
-               )
-               RETURNING id, location_code, location_name`
-            );
-            const loc = locResult.rows[0];
-            if (loc) {
-              await db.query(
-                `UPDATE order_master SET order_status = 'completed', warehouse_location_id = $1, warehouse_location_name = $2, updated_at = NOW() WHERE id = $3::uuid`,
-                [loc.id, loc.location_name, orderId]
-              );
-            } else {
-              // 没有空闲库位，仍然标记完工
-              await db.query(
-                `UPDATE order_master SET order_status = 'completed', updated_at = NOW() WHERE id = $1::uuid`,
-                [orderId]
-              );
-            }
-          }
-        }
-      } else {
-        // 无进行中 -> 找最后一个 completed 阶段，从其 next_stage 开始
-        const lastCompleted = await db.query(
+      // 自动推进：加事务 + SELECT FOR UPDATE 防止并发扫码导致状态错乱
+      const autoClient = await db.getClient();
+      try {
+        await autoClient.query('BEGIN');
+        const inProg = await autoClient.query(
           `SELECT current_stage FROM order_tracking
-           WHERE order_id = $1::uuid AND stage_status = 'completed'
-           ORDER BY created_at DESC LIMIT 1`,
+           WHERE order_id = $1::uuid AND stage_status = 'in_progress'
+           ORDER BY created_at DESC LIMIT 1
+           FOR UPDATE`,
           [orderId]
         );
-        const fromStage = lastCompleted.rows[0]?.current_stage || 'order_confirmed';
-        const nextOfLast = await db.query(
-          `SELECT stage, stage_name FROM production_stage WHERE stage = (
-             SELECT next_stage FROM production_stage WHERE stage = $1
-           )`,
-          [fromStage]
-        );
-        if (nextOfLast.rows.length > 0) {
-          targetStage = nextOfLast.rows[0].stage;
-          // 删除旧记录并新建 in_progress
-          await db.query(
-            `DELETE FROM order_tracking WHERE order_id = $1::uuid AND current_stage = $2`,
-            [orderId, targetStage]
+
+        if (inProg.rows.length > 0) {
+          // 有进行中阶段 -> 扫码完成该阶段，推进到下一阶段
+          const currentStageValue = inProg.rows[0].current_stage;
+          const stageDef = await db.query(
+            `SELECT stage_name, next_stage FROM production_stage WHERE stage = $1`,
+            [currentStageValue]
           );
-          await db.query(
-            `INSERT INTO order_tracking (id, order_id, current_stage, stage_name, stage_status, started_at, created_at)
-             VALUES ($1, $2::uuid, $3, $4, 'in_progress', NOW(), NOW())`,
-            [uuidv4(), orderId, targetStage, nextOfLast.rows[0].stage_name]
-          );
+
+          if (stageDef.rows.length > 0) {
+            const { next_stage, stage_name } = stageDef.rows[0];
+
+            // 将当前阶段标记为 completed（加 current_stage 条件防止误完成其他订单）
+            await autoClient.query(
+              `UPDATE order_tracking
+               SET stage_status = 'completed', completed_at = NOW(),
+                   operator_id = COALESCE($1::uuid, operator_id),
+                   operator_name = COALESCE($2, operator_name),
+                   operator_device = COALESCE($3, operator_device),
+                   stage_remark = COALESCE($4, stage_remark),
+                   updated_at = NOW()
+               WHERE order_id = $5::uuid AND current_stage = $6 AND stage_status = 'in_progress'`,
+              [operator_id, operator_name, operator_device, remark, orderId, currentStageValue]
+            );
+
+            // 创建下一阶段 in_progress
+            if (next_stage) {
+              const nextStageName = await db.query(
+                `SELECT stage_name FROM production_stage WHERE stage = $1`,
+                [next_stage]
+              );
+              const name = nextStageName.rows[0]?.stage_name || next_stage;
+              await autoClient.query(
+                `DELETE FROM order_tracking WHERE order_id = $1::uuid AND current_stage = $2`,
+                [orderId, next_stage]
+              );
+              await autoClient.query(
+                `INSERT INTO order_tracking (id, order_id, current_stage, stage_name, stage_status, started_at, created_at)
+                 VALUES ($1, $2::uuid, $3, $4, 'in_progress', NOW(), NOW())`,
+                [uuidv4(), orderId, next_stage, name]
+              );
+              targetStage = next_stage;
+            } else {
+              // 所有阶段完成 → 订单完工
+              const locResult = await db.query(
+                `UPDATE warehouse_location
+                 SET status = 'occupied'
+                 WHERE id = (
+                   SELECT id FROM warehouse_location
+                   WHERE warehouse_id = (SELECT id FROM warehouse WHERE warehouse_type = 'finished')
+                   AND status = 'empty'
+                   ORDER BY location_code
+                   LIMIT 1
+                 )
+                 RETURNING id, location_code, location_name`
+              );
+              const loc = locResult.rows[0];
+              if (loc) {
+                await db.query(
+                  `UPDATE order_master SET order_status = 'completed', warehouse_location_id = $1, warehouse_location_name = $2, updated_at = NOW() WHERE id = $3::uuid`,
+                  [loc.id, loc.location_name, orderId]
+                );
+              } else {
+                await db.query(
+                  `UPDATE order_master SET order_status = 'completed', updated_at = NOW() WHERE id = $1::uuid`,
+                  [orderId]
+                );
+              }
+            }
+          }
         } else {
-          // 没有可推进的阶段了（可能是已完成订单）
-          return res.json({
-            success: true,
-            message: '订单已完成，无可推进阶段',
-            data: { order_id: orderId, scan_type: scanType, board_info: boardInfo }
-          });
+          // 无进行中 -> 找最后一个 completed 阶段，从其 next_stage 开始
+          const lastCompleted = await autoClient.query(
+            `SELECT current_stage FROM order_tracking
+             WHERE order_id = $1::uuid AND stage_status = 'completed'
+             ORDER BY created_at DESC LIMIT 1`,
+            [orderId]
+          );
+          const fromStage = lastCompleted.rows[0]?.current_stage || 'order_confirmed';
+          const nextOfLast = await db.query(
+            `SELECT stage, stage_name FROM production_stage WHERE stage = (
+               SELECT next_stage FROM production_stage WHERE stage = $1
+             )`,
+            [fromStage]
+          );
+          if (nextOfLast.rows.length > 0) {
+            targetStage = nextOfLast.rows[0].stage;
+            await autoClient.query(
+              `DELETE FROM order_tracking WHERE order_id = $1::uuid AND current_stage = $2`,
+              [orderId, targetStage]
+            );
+            await autoClient.query(
+              `INSERT INTO order_tracking (id, order_id, current_stage, stage_name, stage_status, started_at, created_at)
+               VALUES ($1, $2::uuid, $3, $4, 'in_progress', NOW(), NOW())`,
+              [uuidv4(), orderId, targetStage, nextOfLast.rows[0].stage_name]
+            );
+          } else {
+            await autoClient.query('COMMIT');
+            return res.json({
+              success: true,
+              message: '订单已完成，无可推进阶段',
+              data: { order_id: orderId, scan_type: scanType, board_info: boardInfo }
+            });
+          }
         }
+        await autoClient.query('COMMIT');
+      } catch (err) {
+        await autoClient.query('ROLLBACK');
+        throw err;
+      } finally {
+        autoClient.release();
       }
     } else {
       // 前端指定了 stage：直接切换到该阶段
@@ -400,6 +408,17 @@ router.post('/stage', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'order_id 和 stage 不能为空' });
     }
 
+    // operator_id 合法性校验
+    if (operator_id) {
+      const opCheck = await db.query(
+        `SELECT id FROM employee WHERE id = $1`,
+        [operator_id]
+      );
+      if (opCheck.rows.length === 0) {
+        return res.status(400).json({ success: false, message: '无效的 operator_id' });
+      }
+    }
+
     const stageDef = await db.query(
       `SELECT stage, stage_name, next_stage FROM production_stage WHERE stage = $1`,
       [stage]
@@ -411,7 +430,7 @@ router.post('/stage', async (req, res, next) => {
     const { stage_name, next_stage } = stageDef.rows[0];
 
     if (stage_status === 'completed') {
-      // 完成当前阶段，推进到下一阶段
+      // 完成当前阶段，推进到下一阶段（WHERE 加 order_id + stage 条件，防止误完成其他订单的阶段）
       await db.query(
         `UPDATE order_tracking
          SET stage_status = 'completed', completed_at = NOW(),
@@ -419,8 +438,8 @@ router.post('/stage', async (req, res, next) => {
              operator_name = COALESCE($2, operator_name),
              stage_remark = COALESCE($3, stage_remark),
              updated_at = NOW()
-         WHERE order_id = $4::uuid AND stage_status = 'in_progress'`,
-        [operator_id, operator_name, remark, order_id]
+         WHERE order_id = $4::uuid AND current_stage = $5 AND stage_status = 'in_progress'`,
+        [operator_id, operator_name, remark, order_id, stage]
       );
 
       if (next_stage) {

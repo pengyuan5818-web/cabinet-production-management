@@ -485,6 +485,17 @@ router.post('/:id/commissions/settle', async (req, res, next) => {
       return res.status(400).json({ success: false, message: '支付方式必须是 cash（现金）或 deduct（抵扣货款）' });
     }
 
+    // 校验：所有 commission_ids 必须属于该经销商，防止越权结算
+    const dealerId = req.params.id;
+    const validCheck = await db.query(
+      `SELECT COUNT(*) FROM dealer_commission
+       WHERE commission_id = ANY($1) AND dealer_id = $2`,
+      [commission_ids, dealerId]
+    );
+    if (parseInt(validCheck.rows[0].count) !== commission_ids.length) {
+      return res.status(403).json({ success: false, message: '存在不属于该经销商的佣金记录，结算被拒绝' });
+    }
+
     const result = await require('../services/commissionService').settle({
       commissionIds: commission_ids,
       paymentMethod: payment_method,
