@@ -181,4 +181,26 @@ router.post('/bom/:orderId', async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/design
+ * 设计管理概览
+ */
+router.get('/', async (req, res, next) => {
+  try {
+    const [drawings, pendingCount, bomCount] = await Promise.all([
+      db.query(`SELECT COUNT(*) as total FROM design_drawing`),
+      db.query(`SELECT COUNT(*) as count FROM design_drawing WHERE status = 'pending'`),
+      db.query(`SELECT COUNT(*) as count FROM order_bom`),
+    ]);
+    res.json({
+      success: true,
+      data: {
+        total_drawings: parseInt(drawings.rows[0].total),
+        pending_review: parseInt(pendingCount.rows[0].count),
+        total_bom: parseInt(bomCount.rows[0].count),
+      }
+    });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

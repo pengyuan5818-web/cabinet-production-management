@@ -6,6 +6,7 @@
           <span>质检管理</span>
           <div>
             <el-button type="primary" @click="openIqcDialog">来料质检</el-button>
+            <el-button type="warning" @click="openPqcDialog">过程质检</el-button>
             <el-button type="success" @click="openOqcDialog">出货质检</el-button>
           </div>
         </div>
@@ -118,6 +119,66 @@
             layout="total, prev, pager, next"
             style="margin-top: 16px; justify-content: flex-end"
             @current-change="loadOqc"
+          />
+        </el-tab-pane>
+
+        <!-- PQC 过程质检 -->
+        <el-tab-pane label="过程质检 (PQC)" name="pqc">
+          <div class="filter-bar">
+            <el-select v-model="filter.pqcStatus" placeholder="状态" clearable style="width: 130px">
+              <el-option label="待检" value="pending" />
+              <el-option label="合格" value="pass" />
+              <el-option label="不合格" value="fail" />
+            </el-select>
+            <el-input v-model="filter.pqcKeyword" placeholder="订单号/工序" clearable style="width: 180px" />
+            <el-select v-model="filter.pqcStage" placeholder="生产工序" clearable style="width: 160px">
+              <el-option label="下料" value="cutting" />
+              <el-option label="折弯" value="bending" />
+              <el-option label="焊接" value="welding" />
+              <el-option label="打磨" value="polishing" />
+              <el-option label="装配" value="assembly" />
+            </el-select>
+            <el-date-picker v-model="filter.pqcDate" type="daterange" range-separator="至" start-placeholder="开始日期" end-placeholder="结束日期" value-format="YYYY-MM-DD" style="width: 240px" />
+            <el-button type="primary" @click="loadPqc">搜索</el-button>
+            <el-button @click="resetPqcFilter">重置</el-button>
+          </div>
+          <el-table :data="pqcList" v-loading="loading" stripe style="margin-top: 16px">
+            <el-table-column prop="inspect_no" label="质检单号" width="160" />
+            <el-table-column prop="inspect_type" label="类型" width="80">
+              <template #default="{ row }">
+                <el-tag size="small" type="warning">过程</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="order_no" label="订单号" width="140" />
+            <el-table-column prop="stage_name" label="生产工序" width="100" />
+            <el-table-column prop="work_station" label="工位" width="100" />
+            <el-table-column prop="sample_size" label="抽样数" width="70" align="right" />
+            <el-table-column prop="defect_count" label="缺陷数" width="70" align="right">
+              <template #default="{ row }">
+                <span v-if="row.defect_count > 0" style="color: #f56c6c">{{ row.defect_count }}</span>
+                <span v-else>0</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="result" label="结果" width="90">
+              <template #default="{ row }">
+                <el-tag :type="iqcResultType(row.result)" size="small">{{ iqcResultLabel(row.result) }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="inspector" label="质检员" width="90" />
+            <el-table-column prop="inspect_date" label="质检日期" width="110" />
+            <el-table-column label="操作" width="100" fixed="right">
+              <template #default="{ row }">
+                <el-button link type="primary" size="small" @click="viewPqc(row)">查看</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+          <el-pagination
+            v-model:current-page="pqcPage"
+            :page-size="20"
+            :total="pqcTotal"
+            layout="total, prev, pager, next"
+            style="margin-top: 16px; justify-content: flex-end"
+            @current-change="loadPqc"
           />
         </el-tab-pane>
 
@@ -269,6 +330,69 @@
       </template>
     </el-dialog>
 
+    <!-- PQC 过程质检对话框 -->
+    <el-dialog v-model="pqcDialogVisible" title="过程质检" width="700px" :close-on-click-modal="false">
+      <el-form :model="pqcForm" :rules="pqcRules" ref="pqcFormRef" label-width="110px">
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="订单" prop="order_id">
+              <el-select v-model="pqcForm.order_id" placeholder="选择订单" filterable style="width: 100%" @change="onPqcOrderChange">
+                <el-option v-for="o in orderOptions" :key="o.id" :label="o.order_no + ' - ' + o.customer_name" :value="o.id" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="质检日期" prop="inspect_date">
+              <el-date-picker v-model="pqcForm.inspect_date" type="date" value-format="YYYY-MM-DD" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="生产工序" prop="stage">
+              <el-select v-model="pqcForm.stage" placeholder="选择工序" style="width: 100%">
+                <el-option label="下料" value="cutting" />
+                <el-option label="折弯" value="bending" />
+                <el-option label="焊接" value="welding" />
+                <el-option label="打磨" value="polishing" />
+                <el-option label="装配" value="assembly" />
+              </el-select>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="工位" prop="work_station">
+              <el-input v-model="pqcForm.work_station" placeholder="如：工位A1" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="抽样数" prop="sample_size">
+              <el-input-number v-model="pqcForm.sample_size" :min="1" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="缺陷数" prop="defect_count">
+              <el-input-number v-model="pqcForm.defect_count" :min="0" style="width: 100%" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="检验结果" prop="result">
+              <el-radio-group v-model="pqcForm.result">
+                <el-radio value="pass">合格</el-radio>
+                <el-radio value="fail">不合格</el-radio>
+              </el-radio-group>
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="备注" prop="remark">
+              <el-input v-model="pqcForm.remark" type="textarea" :rows="2" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+      </el-form>
+      <template #footer>
+        <el-button @click="pqcDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitPqc" :loading="submitting">提交</el-button>
+      </template>
+    </el-dialog>
+
     <!-- 质检标准对话框 -->
     <el-dialog v-model="stdDialogVisible" :title="stdEditMode ? '编辑质检标准' : '新增质检标准'" width="600px" :close-on-click-modal="false">
       <el-form :model="stdForm" :rules="stdRules" ref="stdFormRef" label-width="120px">
@@ -347,6 +471,23 @@ const oqcRules = {
   result: [{ required: true, message: '请选择检验结果', trigger: 'change' }]
 }
 
+// PQC
+const pqcList = ref([])
+const pqcTotal = ref(0)
+const pqcPage = ref(1)
+const pqcDialogVisible = ref(false)
+const pqcFormRef = ref()
+const pqcForm = reactive({
+  order_id: null, inspect_date: '', stage: '', work_station: '',
+  sample_size: 1, defect_count: 0, result: 'pass', remark: ''
+})
+const pqcRules = {
+  order_id: [{ required: true, message: '请选择订单', trigger: 'change' }],
+  inspect_date: [{ required: true, message: '请选择质检日期', trigger: 'change' }],
+  stage: [{ required: true, message: '请选择生产工序', trigger: 'change' }],
+  result: [{ required: true, message: '请选择检验结果', trigger: 'change' }]
+}
+
 // Standards
 const standardsList = ref([])
 const stdDialogVisible = ref(false)
@@ -369,6 +510,7 @@ const orderOptions = ref([])
 const filter = reactive({
   iqcStatus: '', iqcSupplier: '', iqcDate: null,
   oqcStatus: '', oqcKeyword: '',
+  pqcStatus: '', pqcKeyword: '', pqcStage: '', pqcDate: null,
   stdKeyword: '', stdType: ''
 })
 
@@ -401,6 +543,56 @@ async function loadOqc() {
     oqcTotal.value = res.data.total || oqcList.value.length
   } catch (e) { ElMessage.error('加载出货质检失败') }
   finally { loading.value = false }
+}
+
+async function loadPqc() {
+  loading.value = true
+  try {
+    const params = { page: pqcPage.value, page_size: 20, inspect_type: 'pqc' }
+    if (filter.pqcStatus) params.status = filter.pqcStatus
+    if (filter.pqcKeyword) params.keyword = filter.pqcKeyword
+    if (filter.pqcStage) params.stage = filter.pqcStage
+    if (filter.pqcDate) { params.start_date = filter.pqcDate[0]; params.end_date = filter.pqcDate[1] }
+    const res = await qualityApi.list(params)
+    pqcList.value = res.data.list || res.data || []
+    pqcTotal.value = res.data.total || pqcList.value.length
+  } catch (e) { ElMessage.error('加载过程质检失败') }
+  finally { loading.value = false }
+}
+
+function resetPqcFilter() {
+  filter.pqcStatus = ''; filter.pqcKeyword = ''; filter.pqcStage = ''; filter.pqcDate = null
+  loadPqc()
+}
+
+function openPqcDialog() {
+  const today = new Date().toISOString().slice(0, 10)
+  Object.assign(pqcForm, { id: null, order_id: null, inspect_date: today, stage: '', work_station: '', sample_size: 1, defect_count: 0, result: 'pass', remark: '' })
+  pqcDialogVisible.value = true
+}
+
+function onPqcOrderChange(oid) {
+  if (!oid) return
+  const o = orderOptions.value.find(x => x.id === oid)
+  if (o) { pqcForm.stage = o.current_stage || '' }
+}
+
+async function submitPqc() {
+  const valid = await pqcFormRef.value.validate().catch(() => false)
+  if (!valid) return
+  submitting.value = true
+  try {
+    const order = orderOptions.value.find(x => x.id === pqcForm.order_id)
+    await qualityApi.create({ ...pqcForm, inspect_type: 'pqc', inspect_no: 'PQC' + Date.now(), order_no: order?.order_no || '' })
+    ElMessage.success('提交成功')
+    pqcDialogVisible.value = false
+    loadPqc()
+  } catch { ElMessage.error('提交失败') }
+  finally { submitting.value = false }
+}
+
+function viewPqc(row) {
+  ElMessage.info('查看质检详情: ' + row.inspect_no)
 }
 
 async function loadStandards() {
@@ -517,8 +709,8 @@ onMounted(async () => {
   try {
     const s = await supplierApi.list({ page_size: 200 })
     supplierOptions.value = s.data.list || []
-    const o = await orderApi.list({ page_size: 200, status: 'completed' })
-    orderOptions.value = o.data.list || []
+    const o = await orderApi.list({ page_size: 200 })
+    orderOptions.value = (o.data.list || []).filter(x => x.order_status !== 'draft')
   } catch {}
   loadIqc()
 })

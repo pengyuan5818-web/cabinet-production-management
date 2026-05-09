@@ -80,6 +80,7 @@
             </el-select>
             <el-button type="primary" @click="loadBom">加载BOM</el-button>
             <el-button type="success" @click="saveBom" :loading="saving">保存BOM</el-button>
+            <el-button type="warning" @click="openAlphaImportDialog">从阿尔法导入</el-button>
           </div>
 
           <el-alert v-if="bomFilter.order_id" type="info" style="margin-top: 12px" :closable="false">
@@ -117,6 +118,79 @@
             </span>
           </div>
         </el-tab-pane>
+
+    <!-- 阿尔法家BOM导入对话框 -->
+    <el-dialog v-model="alphaImportVisible" title="从阿尔法家导入BOM" width="680px" :close-on-click-modal="false">
+      <el-steps :active="alphaStep" finish-status="success" style="margin-bottom: 24px">
+        <el-step title="选择订单" />
+        <el-step title="上传文件" />
+        <el-step title="确认导入" />
+      </el-steps>
+
+      <!-- 步骤1：选择订单 -->
+      <div v-if="alphaStep === 0">
+        <el-form-item label="目标订单" required>
+          <el-select v-model="alphaForm.order_id" placeholder="请先在BOM配置区选择订单，或在此选择" filterable style="width: 100%">
+            <el-option v-for="o in orderOptions" :key="o.id" :label="o.order_no + ' - ' + o.customer_name" :value="o.id" />
+          </el-select>
+        </el-form-item>
+        <div style="text-align: right; margin-top: 16px">
+          <el-button type="primary" @click="alphaNextStep" :disabled="!alphaForm.order_id">下一步</el-button>
+        </div>
+      </div>
+
+      <!-- 步骤2：上传文件 -->
+      <div v-if="alphaStep === 1">
+        <el-alert type="info" :closable="false" style="margin-bottom: 16px">
+          支持阿尔法家导出的 <b>.xlsx / .xls / .csv / .json</b> 格式文件
+        </el-alert>
+        <el-upload
+          ref="alphaUploadRef"
+          class="upload-demo"
+          drag
+          :auto-upload="false"
+          :limit="1"
+          accept=".xlsx,.xls,.csv,.json"
+          :on-change="onAlphaFileChange"
+          :file-list="alphaFileList"
+        >
+          <el-icon class="el-icon--upload"><upload-filled /></el-icon>
+          <div class="el-upload__text">拖拽文件到此处 或 <em>点击上传</em></div>
+          <template #tip>
+            <div class="el-upload__tip">请上传阿尔法家拆单软件导出的Excel/CSV/JSON文件</div>
+          </template>
+        </el-upload>
+        <div v-if="alphaValidateResult" style="margin-top: 12px">
+          <el-alert type="success" :closable="false">
+            解析成功，共 {{ alphaValidateResult.total_records }} 条记录
+          </el-alert>
+        </div>
+        <div style="text-align: right; margin-top: 16px">
+          <el-button @click="alphaStep = 0">上一步</el-button>
+          <el-button type="primary" @click="alphaValidateFile" :loading="alphaUploading" :disabled="!alphaForm.file">验证文件</el-button>
+        </div>
+      </div>
+
+      <!-- 步骤3：确认导入 -->
+      <div v-if="alphaStep === 2">
+        <el-alert type="info" :closable="false" style="margin-bottom: 12px">
+          文件验证通过，确认将数据导入到订单 <b>{{ alphaForm.order_no }}</b>
+        </el-alert>
+        <el-table :data="alphaPreview" stripe size="small" max-height="280">
+          <el-table-column prop="board_name" label="板件名称" min-width="120" />
+          <el-table-column prop="length" label="长(mm)" width="80" align="right" />
+          <el-table-column prop="width" label="宽(mm)" width="80" align="right" />
+          <el-table-column prop="thickness" label="厚(mm)" width="80" align="right" />
+          <el-table-column prop="quantity" label="数量" width="60" align="right" />
+          <el-table-column prop="edge_left" label="封边(L)" width="70" align="right" />
+          <el-table-column prop="edge_right" label="封边(R)" width="70" align="right" />
+        </el-table>
+        <div style="text-align: right; margin-top: 16px">
+          <el-button @click="alphaStep = 1">上一步</el-button>
+          <el-button type="success" @click="alphaDoImport" :loading="alphaImporting">确认导入</el-button>
+        </div>
+      </div>
+    </el-dialog>
 
         <!-- 图纸审核 -->
         <el-tab-pane label="待审核" name="pending">
@@ -233,7 +307,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { design as designApi, orders as orderApi, warehouse } from '../../api'
+import { design as designApi, orderApi, warehouse, alpha as alphaApi } from '../../api'
 
 const activeTab = ref('list')
 const loading = ref(false)
@@ -253,6 +327,17 @@ const bomItems = ref([])
 const loadingBom = ref(false)
 const addBomDialogVisible = ref(false)
 const bomMaterialForm = reactive({ material_id: null, quantity: 1 })
+
+// 阿尔法导入
+const alphaImportVisible = ref(false)
+const alphaStep = ref(0)
+const alphaUploading = ref(false)
+const alphaImporting = ref(false)
+const alphaForm = reactive({ order_id: '', order_no: '', file: null })
+const alphaFileList = ref([])
+const alphaUploadRef = ref()
+const alphaValidateResult = ref(null)
+const alphaPreview = ref([])
 
 // Dialogs
 const uploadDialogVisible = ref(false)
@@ -314,6 +399,67 @@ async function loadBom() {
     currentBomOrder.value = o || null
   } catch (e) { ElMessage.error('加载BOM失败') }
   finally { loadingBom.value = false }
+}
+
+function openAlphaImportDialog() {
+  if (!bomFilter.order_id) {
+    ElMessage.warning('请先在BOM配置区选择一个订单')
+    return
+  }
+  alphaForm.order_id = bomFilter.order_id
+  const o = orderOptions.value.find(x => x.id === bomFilter.order_id)
+  alphaForm.order_no = o ? o.order_no : ''
+  alphaStep.value = 0
+  alphaValidateResult.value = null
+  alphaPreview.value = []
+  alphaFileList.value = []
+  alphaForm.file = null
+  alphaImportVisible.value = true
+}
+
+function alphaNextStep() {
+  if (!alphaForm.order_id) { ElMessage.warning('请选择目标订单'); return }
+  alphaStep.value = 1
+}
+
+function onAlphaFileChange(file, fileList) {
+  alphaForm.file = file.raw
+  alphaFileList.value = fileList.slice(-1)
+  alphaValidateResult.value = null
+  alphaPreview.value = []
+}
+
+async function alphaValidateFile() {
+  if (!alphaForm.file) { ElMessage.warning('请先上传文件'); return }
+  alphaUploading.value = true
+  try {
+    const res = await alphaApi.validate(alphaForm.file)
+    if (res.success) {
+      alphaValidateResult.value = res.data
+      alphaPreview.value = res.data.preview || []
+      ElMessage.success('文件解析成功')
+    } else {
+      ElMessage.error(res.message || '文件解析失败')
+    }
+  } catch (e) {
+    ElMessage.error('验证文件失败')
+  } finally { alphaUploading.value = false }
+}
+
+async function alphaDoImport() {
+  if (!alphaForm.order_id || !alphaForm.file) return
+  alphaImporting.value = true
+  try {
+    const res = await alphaApi.import(alphaForm.file, alphaForm.order_id)
+    if (res.success) {
+      ElMessage.success(`导入成功！共导入 ${res.data?.total || 0} 条板件数据到 BOM`)
+      alphaImportVisible.value = false
+      loadBom()
+    } else {
+      ElMessage.error(res.message || '导入失败')
+    }
+  } catch (e) { ElMessage.error('导入失败')
+  } finally { alphaImporting.value = false }
 }
 
 function onBomOrderChange(oid) {

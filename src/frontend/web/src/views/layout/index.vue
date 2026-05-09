@@ -74,6 +74,10 @@
           <el-icon><Box /></el-icon>
           <span>包装管理</span>
         </el-menu-item>
+        <el-menu-item index="/scanner">
+          <el-icon><Connection /></el-icon>
+          <span>扫码枪管理</span>
+        </el-menu-item>
 
         <!-- 基础数据 -->
         <div class="menu-group-title">基础数据</div>
@@ -117,7 +121,7 @@ import { useAuthStore } from '../../stores/auth'
 import {
   Odometer, Document, Setting, Box, Tools, Van, User, Shop,
   Edit, PriceTag, Money, ShoppingCart, CircleCheck, Sort,
-  UserFilled, DataAnalysis
+  UserFilled, DataAnalysis, Connection
 } from '@element-plus/icons-vue'
 
 const route = useRoute()
@@ -144,7 +148,8 @@ const getPageTitle = computed(() => {
     '/employee': '员工管理',
     '/supplier': '供应商管理',
     '/report': '报表统计',
-    '/system': '系统设置'
+    '/system': '系统设置',
+    '/scanner': '扫码枪管理'
   }
   return map[route.path] || '橱柜工厂管理系统'
 })

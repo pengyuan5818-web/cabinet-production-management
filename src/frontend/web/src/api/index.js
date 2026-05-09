@@ -217,6 +217,26 @@ export const hardware = {
   testVoice: (data) => api.post('/hardware/driver/voice/test', data)
 }
 
+// 扫码枪设备管理
+export const scanner = {
+  // 设备列表
+  list: (params) => api.get('/scanner', { params }),
+  // 添加设备
+  create: (data) => api.post('/scanner', data),
+  // 更新设备
+  update: (id, data) => api.put(`/scanner/${id}`, data),
+  // 删除设备
+  delete: (id) => api.delete(`/scanner/${id}`),
+  // 心跳
+  heartbeat: (id) => api.post(`/scanner/${id}/heartbeat`),
+  // 扫码
+  scan: (data) => api.post('/scanner/scan', data),
+  // 扫码记录
+  records: (id, params) => api.get(`/scanner/${id}/records`, { params }),
+  // 工序类型枚举
+  processTypes: () => api.get('/scanner/process-types')
+}
+
 // 订单分拣
 export const sort = {
   tasks: (params) => api.get('/sort/tasks', { params }),
@@ -262,6 +282,24 @@ export const purchase = {
   receive: (id, data) => api.post(`/purchase/order/${id}/receive`, data)
 }
 
+// 阿尔法家拆单/BOM导入
+export const alpha = {
+  // 验证文件（预览）
+  validate: (file, params) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (params) Object.entries(params).forEach(([k, v]) => formData.append(k, v))
+    return api.post('/alpha/validate', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+  },
+  // 导入BOM到订单
+  import: (file, orderId) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('order_id', orderId)
+    return api.post('/alpha/import', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+  }
+}
+
 // 质检管理
 export const quality = {
   list: (params) => api.get('/quality/list', { params }),
@@ -281,6 +319,15 @@ export const design = {
   saveBom: (orderId, data) => api.post(`/design/bom/${orderId}`, data),
   upload: (data) => api.post('/design/drawing', data),
   audit: (id, data) => api.put(`/design/drawing/${id}/audit`, data)
+}
+
+// 订单
+export const orderApi = {
+  list: (params) => api.get('/orders', { params }),
+  detail: (id) => api.get(`/orders/${id}`),
+  create: (data) => api.post('/orders', data),
+  update: (id, data) => api.put(`/orders/${id}`, data),
+  tracking: (id) => api.get(`/orders/${id}/tracking`)
 }
 
 // 报价管理

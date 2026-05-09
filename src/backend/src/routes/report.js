@@ -672,4 +672,190 @@ router.get('/employee/production', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+/**
+ * GET /api/reports/sales/by-product
+ * 按产品分类的销售统计
+ */
+router.get('/sales/by-product', async (req, res, next) => {
+  try {
+    const { start_date, end_date, dealer_id } = req.query;
+
+    let where = ['1=1'];
+    let params = [];
+    let p = 0;
+
+    if (start_date) { where.push(`om.created_at >= $${++p}`); params.push(start_date); }
+    if (end_date) { where.push(`om.created_at <= $${++p}`); params.push(end_date); }
+    if (dealer_id) { where.push(`om.dealer_id = $${++p}`); params.push(dealer_id); }
+
+    const whereSql = where.join(' AND ');
+
+    // 按产品名称统计（来自 order_item）
+    const result = await db.query(`
+      SELECT
+        oi.product_name as product_name,
+        COUNT(DISTINCT om.id) as order_count,
+        SUM(oi.quantity) as total_quantity,
+        SUM(oi.total_price) as total_amount,
+        AVG(oi.unit_price) as avg_price
+      FROM order_master om
+      JOIN order_item oi ON om.id = oi.order_id
+      WHERE ${whereSql}
+      GROUP BY oi.product_name
+      ORDER BY total_amount DESC
+    `, params);
+
+    res.json({ success: true, data: result.rows });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/reports/warehouse/summary
+ * 仓库汇总统计
+ */
+router.get('/warehouse/summary', async (req, res, next) => {
+  try {
+    const { warehouse_id } = req.query;
+
+    let where = ["m.status = 'active'"];
+    let params = [];
+    let p = 0;
+
+    if (warehouse_id) { where.push(`si.warehouse_id = $${++p}`); params.push(warehouse_id); }
+
+    const whereSql = where.join(' AND ');
+
+    // 库存汇总
+    const summaryResult = await db.query(`
+      SELECT
+        COUNT(DISTINCT m.id) as material_count,
+        COUNT(DISTINCT si.warehouse_id) as warehouse_count,
+        SUM(COALESCE(si.quantity, 0)) as total_quantity,
+        SUM(COALESCE(si.quantity, 0) * COALESCE(m.unit_price, 0)) as total_value,
+        COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(si.quantity, 0) <= m.safe_stock) as low_stock_count,
+        COUNT(DISTINCT m.id) FILTER (WHERE COALESCE(si.quantity, 0) = 0) as zero_stock_count
+      FROM material m
+      LEFT JOIN stock_inventory si ON m.id::uuid = si.material_id
+      WHERE ${whereSql}
+    `, params);
+
+    // 各仓库明细
+    const warehouseResult = await db.query(`
+      SELECT
+        w.id as warehouse_id,
+        w.warehouse_name,
+        COUNT(DISTINCT m.id) as material_count,
+        SUM(COALESCE(si.quantity, 0)) as total_quantity,
+        SUM(COALESCE(si.quantity, 0) * COALESCE(m.unit_price, 0)) as total_value
+      FROM warehouse w
+      LEFT JOIN stock_inventory si ON w.id = si.warehouse_id
+      LEFT JOIN material m ON si.material_id = m.id::uuid AND m.status = 'active'
+      GROUP BY w.id, w.warehouse_name
+      ORDER BY w.warehouse_name
+    `);
+
+    // 低库存预警
+    const alertResult = await db.query(`
+      SELECT
+        m.material_code,
+        m.material_name,
+        m.category,
+        m.specification,
+        COALESCE(si.quantity, 0) as quantity,
+        m.safe_stock,
+        m.unit as unit_name
+      FROM material m
+      LEFT JOIN stock_inventory si ON m.id::uuid = si.material_id
+      WHERE m.status = 'active' AND COALESCE(si.quantity, 0) <= m.safe_stock
+      ORDER BY m.category, m.material_name
+    `);
+
+    res.json({
+      success: true,
+      data: {
+        summary: summaryResult.rows[0],
+        by_warehouse: warehouseResult.rows,
+        low_stock_alerts: alertResult.rows
+      }
+    });
+  } catch (err) { next(err); }
+});
+
+/**
+ * GET /api/reports/employee/monthly
+ * 员工月度考勤统计
+ */
+router.get('/employee/monthly', async (req, res, next) => {
+  try {
+    const { year, month, dept_id } = req.query;
+
+    const now = new Date();
+    const targetYear = parseInt(year) || now.getFullYear();
+    const targetMonth = parseInt(month) || (now.getMonth() + 1);
+
+    let where = ['1=1'];
+    let params = [];
+    let p = 0;
+
+    if (dept_id) { where.push(`e.dept_id = $${++p}`); params.push(dept_id); }
+
+    const whereSql = where.join(' AND ');
+
+    const result = await db.query(`
+      SELECT
+        e.id as employee_id,
+        e.employee_name,
+        e.employee_no,
+        COALESCE(d.dept_name, '未分配') as dept_name,
+        COUNT(DISTINCT DATE(ar.record_date)) as actual_work_days,
+        COUNT(ar.id) as total_records,
+        COUNT(ar.id) FILTER (WHERE ar.status = 'normal') as normal_count,
+        COUNT(ar.id) FILTER (WHERE ar.status = 'late') as late_count,
+        COUNT(ar.id) FILTER (WHERE ar.status = 'early_leave') as early_leave_count,
+        COUNT(ar.id) FILTER (WHERE ar.status = 'absent') as absent_count,
+        COUNT(ar.id) FILTER (WHERE ar.status = 'leave') as leave_count,
+        ROUND(
+          COUNT(ar.id) FILTER (WHERE ar.status = 'normal') * 100.0 /
+          NULLIF(COUNT(ar.id), 0), 1
+        ) as normal_rate,
+        SUM(ar.working_hours) as total_hours,
+        ROUND(AVG(ar.working_hours) FILTER (WHERE ar.status = 'normal'), 1) as avg_hours
+      FROM employee e
+      LEFT JOIN department d ON e.dept_id = d.id
+      LEFT JOIN attendance_record ar ON e.id = ar.employee_id
+        AND EXTRACT(YEAR FROM ar.record_date) = $${++p}
+        AND EXTRACT(MONTH FROM ar.record_date) = $${++p}
+      WHERE ${whereSql}
+      GROUP BY e.id, e.employee_name, e.employee_no, d.dept_name
+      ORDER BY d.dept_name, e.employee_no
+    `, [targetYear, targetMonth, ...params]);
+
+    // 全勤统计
+    const perfectResult = await db.query(`
+      SELECT COUNT(*) as count
+      FROM (
+        SELECT e.id
+        FROM employee e
+        LEFT JOIN attendance_record ar ON e.id = ar.employee_id
+          AND EXTRACT(YEAR FROM ar.record_date) = $1
+          AND EXTRACT(MONTH FROM ar.record_date) = $2
+        WHERE e.status = 'active'
+        GROUP BY e.id
+        HAVING COUNT(ar.id) FILTER (WHERE ar.status != 'normal') = 0
+          AND COUNT(ar.id) >= 20
+      ) t
+    `, [targetYear, targetMonth]);
+
+    res.json({
+      success: true,
+      data: {
+        year: targetYear,
+        month: targetMonth,
+        list: result.rows,
+        perfect_attendance_count: parseInt(perfectResult.rows[0].count)
+      }
+    });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

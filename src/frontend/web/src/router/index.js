@@ -32,7 +32,8 @@ const routes = [
       { path: 'package', name: 'Package', component: () => import('../views/package/index.vue') },
       { path: 'system', name: 'System', component: () => import('../views/system/index.vue') },
       { path: 'system/exchange-rate', name: 'ExchangeRate', component: () => import('../views/system/exchange_rate.vue') },
-      { path: 'cost', name: 'Cost', component: () => import('../views/cost/index.vue') }
+      { path: 'cost', name: 'Cost', component: () => import('../views/cost/index.vue') },
+      { path: 'scanner', name: 'Scanner', component: () => import('../views/scanner/index.vue') }
     ]
   },
   {

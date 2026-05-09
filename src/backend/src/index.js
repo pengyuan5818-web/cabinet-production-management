@@ -8,6 +8,7 @@ const path = require('path');
 const logger = require('./utils/logger');
 const db = require('./db');
 const authMiddleware = require('./middleware/auth');
+const { initHardware, onBarcode, offBarcode } = require('./hardware');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -24,6 +25,8 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // 静态文件
 app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+// 前端静态文件（用于远程访问）
+app.use(express.static(path.join(__dirname, '..', '..', '..', 'dist', 'web')));
 
 // 请求日志
 app.use((req, res, next) => {
@@ -88,6 +91,10 @@ app.use('/api/purchase', authMiddleware, require('./routes/purchase'));
 // 汇率管理
 app.use('/api/exchange-rates', authMiddleware, require('./routes/exchange_rate'));
 app.use('/api/quality', authMiddleware, require('./routes/quality'));
+app.use('/api/attendance', authMiddleware, require('./routes/attendance'));
+
+// 扫码枪设备管理
+app.use('/api/scanner', authMiddleware, require('./routes/scanner'));
 app.use('/api/design', authMiddleware, require('./routes/design'));
 app.use('/api/installation', authMiddleware, require('./routes/installation'));
 app.use('/api/quote', authMiddleware, require('./routes/quote'));
@@ -96,6 +103,16 @@ app.use('/api/package', authMiddleware, require('./routes/package'));
 // 健康检查
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// SPA 路由 fallback（所有非API路径返回 index.html）
+app.get(/^\/(?!api|uploads|static)/, (req, res) => {
+  const indexPath = path.join(__dirname, '..', '..', '..', 'dist', 'web', 'index.html');
+  try {
+    res.sendFile(indexPath);
+  } catch(e) {
+    res.status(404).send('前端未构建，请运行 npm run build');
+  }
 });
 
 // 错误处理
@@ -108,9 +125,20 @@ app.use((err, req, res, next) => {
   });
 });
 
-// 启动
-app.listen(PORT, () => {
-  logger.info(`橱柜工厂管理系统 API 已启动: http://localhost:${PORT}`);
-});
+// 启动硬件服务（扫码枪、考勤机等）
+async function startServer() {
+  try {
+    await initHardware();
+    logger.info('硬件服务初始化完成');
+  } catch (err) {
+    logger.error('硬件服务初始化失败:', err.message);
+  }
+
+  app.listen(PORT, () => {
+    logger.info(`橱柜工厂管理系统 API 已启动: http://localhost:${PORT}`);
+  });
+}
+
+startServer();
 
 module.exports = app;

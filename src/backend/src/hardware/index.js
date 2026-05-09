@@ -1,58 +1,81 @@
 /**
  * 硬件服务模块
- * 支持: 扫码枪、扬声器、考勤机、标签打印机
+ * 支持: 多扫码枪（按位置）、扬声器、考勤机（得力云）、标签打印机
  */
 const { ScannerService } = require('./scannerService');
+const { MultiScannerService, multiScannerService } = require('./multiScannerService');
 const { VoiceService } = require('./voiceService');
+const { DeliAttendanceService } = require('./deliAttendanceService');
 const SerialPort = require('serialport');
 const net = require('net');
 const logger = require('../utils/logger');
 
 // 硬件配置
 const HARDWARE_CONFIG = {
-  // 扫码枪配置（串口）
   scanner: {
     enabled: process.env.SCANNER_ENABLED !== 'false',
     port: process.env.SCANNER_PORT || 'COM3',
     baudRate: parseInt(process.env.SCANNER_BAUD || '9600')
   },
-  // 扬声器配置（串口）
   speaker: {
     enabled: process.env.SPEAKER_ENABLED !== 'false',
     port: process.env.SPEAKER_PORT || 'COM4',
     baudRate: parseInt(process.env.SPEAKER_BAUD || '115200')
   },
-  // 考勤机配置（网络）
   attendance: {
     enabled: process.env.ATTENDANCE_ENABLED !== 'false',
     host: process.env.HIKVISION_HOST || '192.168.1.64',
-    port: parseInt(process.env.HIKVISION_PORT || '8000')
+    port: parseInt(process.env.HIKVISION_PORT || '8000'),
+    provider: process.env.ATTENDANCE_PROVIDER || 'deli_cloud',
+    deli: {
+      appKey: process.env.DELI_APP_KEY || '',
+      appSecret: process.env.DELI_APP_SECRET || '',
+      companyId: process.env.DELI_COMPANY_ID || '',
+      syncInterval: parseInt(process.env.DELI_SYNC_INTERVAL || '3600000')
+    }
   }
 };
 
 // ── 语音服务（MiniMax TTS）───────────────────────────────
 const voiceService = new VoiceService();
 
-// ── 扫码枪服务（串口）───────────────────────────────────
+// ── 扫码枪服务（单把兼容 + 多把管理）───────────────────
 const scannerService = new ScannerService();
 
 /**
- * 初始化硬件服务
- * 在 backend 启动时调用一次
+ * 初始化硬件服务（后端启动时调用一次）
  */
 async function initHardware() {
-  // 启动扫码枪监听
-  if (HARDWARE_CONFIG.scanner.enabled) {
+  if (HARDWARE_CONFIG.scanner.enabled && process.env.MULTI_SCANNER_ENABLED === 'false') {
     await scannerService.start();
+  }
+
+  if (process.env.MULTI_SCANNER_ENABLED !== 'false') {
+    try {
+      await multiScannerService.loadAndConnect();
+    } catch (err) {
+      logger.warn('[Hardware] 多扫码枪服务初始化失败:', err.message);
+    }
   }
 }
 
 /**
- * 注册扫码回调（业务逻辑通过此方法接入）
- * @param {function} callback (barcode: string) => void
+ * 注册扫码回调
+ * @param {function} callback (barcode: string, scannerInfo?: object) => void
  */
 function onBarcode(callback) {
   scannerService.onScan(callback);
+  multiScannerService.onScan(callback);
+}
+
+/**
+ * 移除扫码回调
+ */
+function offBarcode(callback) {
+  if (typeof scannerService.offScan === 'function') {
+    scannerService.offScan(callback);
+  }
+  multiScannerService.offScan(callback);
 }
 
 // ── 扬声器服务（串口协议）───────────────────────────────
@@ -90,16 +113,10 @@ class SpeakerService {
     }
   }
 
-  /**
-   * 播放语音（通过 MiniMax TTS）
-   */
   async playVoice(message) {
     await voiceService.speak(message);
   }
 
-  /**
-   * 播放语音（串口协议，老设备兼容）
-   */
   async playVoiceRaw(message) {
     if (!this.isConnected) await this.connect();
     if (!this.serialPort?.isOpen) return;
@@ -137,11 +154,32 @@ class SpeakerService {
   }
 }
 
-// ── 考勤机服务 ────────────────────────────────────────
+// ── 考勤机服务（统一接口）────────────────────────────
 class AttendanceMachineService {
   constructor() {
     this.socket = null;
     this.isConnected = false;
+    this.deliService = null;
+  }
+
+  async start() {
+    const provider = HARDWARE_CONFIG.attendance.provider;
+
+    if (provider === 'deli_cloud') {
+      if (!HARDWARE_CONFIG.attendance.deli.appKey) {
+        logger.warn('[考勤] 得力云未配置 AppKey，跳过启动');
+        return;
+      }
+      this.deliService = new DeliAttendanceService();
+      this.deliService.startAutoSync(HARDWARE_CONFIG.attendance.deli.syncInterval);
+      logger.info('[考勤] 得力云考勤服务已启动');
+    } else {
+      try {
+        await this.connect();
+      } catch (e) {
+        logger.warn('[考勤] 海康威视连接失败:', e.message);
+      }
+    }
   }
 
   async connect() {
@@ -150,27 +188,31 @@ class AttendanceMachineService {
 
     return new Promise((resolve, reject) => {
       this.socket = new net.Socket();
+      const timer = setTimeout(() => { this.socket.destroy(); reject(new Error('连接超时')); }, 5000);
       this.socket.connect(HARDWARE_CONFIG.attendance.port, HARDWARE_CONFIG.attendance.host, () => {
+        clearTimeout(timer);
         this.isConnected = true;
-        logger.info(`考勤机已连接: ${HARDWARE_CONFIG.attendance.host}:${HARDWARE_CONFIG.attendance.port}`);
+        logger.info(`海康考勤机已连接: ${HARDWARE_CONFIG.attendance.host}:${HARDWARE_CONFIG.attendance.port}`);
         resolve();
       });
-      this.socket.on('error', (err) => {
-        this.isConnected = false;
-        reject(err);
-      });
+      this.socket.on('error', (err) => { clearTimeout(timer); this.isConnected = false; reject(err); });
       this.socket.on('close', () => { this.isConnected = false; });
     });
   }
 
   async getAttendanceRecords(startTime, endTime) {
     if (!this.isConnected) await this.connect();
-    // TODO: 实现海康威视考勤协议
     return [];
+  }
+
+  async pullDeliData(hoursAgo = 24) {
+    if (!this.deliService) throw new Error('得力云考勤服务未启动');
+    return await this.deliService.pullAndSync(hoursAgo);
   }
 
   close() {
     if (this.socket) { this.socket.destroy(); this.isConnected = false; }
+    if (this.deliService) { this.deliService.stopAutoSync(); }
   }
 }
 
@@ -212,18 +254,21 @@ class LabelPrinterService {
   }
 }
 
-// 导出单例
+// ── 导出单例 ─────────────────────────────────────────
 const speakerService = new SpeakerService();
 const attendanceService = new AttendanceMachineService();
 const labelPrinterService = new LabelPrinterService();
 
 module.exports = {
   scannerService,
+  multiScannerService,
   voiceService,
   speakerService,
   attendanceService,
   labelPrinterService,
   HARDWARE_CONFIG,
   initHardware,
-  onBarcode
+  onBarcode,
+  offBarcode,
+  DeliAttendanceService
 };
